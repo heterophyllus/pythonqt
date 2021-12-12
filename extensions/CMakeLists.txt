@@ -2,18 +2,25 @@ cmake_minimum_required (VERSION 3.10)
 
 project(PythonQt_QtAll LANGUAGES CXX)
 
+
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+
+# If cmake raises "QT_DIR not found" error, set Qt install path explicitly.
+# set(CMAKE_PREFIX_PATH "C:/Qt/(version)/(kit)")
+find_package(Qt5 COMPONENTS Core Gui Widgets PrintSupport Multimedia MultimediaWidgets OpenGL SVG uitools REQUIRED)
+
+
+#set(Python_ADDITIONAL_VERSIONS 3.9)
+find_package(Python COMPONENTS Interpreter Development REQUIRED)
+
+
 set(PYTHONQT_QTALL_SOURCES
     PythonQt_QtAll/PythonQt_QtAll.cpp
     ${GENERATED_CPP_56_BUILIN_SOURCES}
     ${GENERATED_CPP_56_ALL_SOURCES}
 )
-
-
-message("******** PythonQt_QtAll Sources *****************")
-foreach(_f2 ${PYTHONQT_QTALL_SOURCES})
-    message(STATUS ${_f2})
-endforeach()
-message("*******************************************")
 
 add_library(${PROJECT_NAME} SHARED
     ${PYTHONQT_QTALL_SOURCES}
@@ -21,7 +28,7 @@ add_library(${PROJECT_NAME} SHARED
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${Python_INCLUDE_DIRS}
-    ${CMAKE_SOURCE_DIR}/src
+    ${PYTHONQT_INCLUDE_DIR}
     ${GENERATED_CPP_56_BUILTIN_INCLUDE_DIR}
     ${GENERATED_CPP_56_ALL_INCLUDE_DIR}
 )
@@ -35,6 +42,7 @@ target_compile_definitions(PythonQt_QtAll PRIVATE
     PYTHONQT_WITH_MULTIMEDIA
     PYTHONQT_WITH_UITOOLS
 )
+
 target_link_libraries(PythonQt_QtAll PRIVATE
     Qt5::Core
     Qt5::Gui

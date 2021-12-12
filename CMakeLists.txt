@@ -1,46 +1,6 @@
 cmake_minimum_required (VERSION 3.10)
 
-project(pythonqtbuild)
-
-set(CMAKE_INCLUDE_CURRENT_DIR ON)
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
-SET(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib)
-
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-
-
-find_package(Qt5 COMPONENTS Core Gui Widgets PrintSupport Multimedia MultimediaWidgets OpenGL SVG uitools REQUIRED)
-
-message("***** Qt5 ***********************************")
-get_cmake_property(_variableNames VARIABLES)
-foreach (_variableName ${_variableNames})
-    if(_variableName MATCHES "^(Qt5).*$")
-        message(STATUS "${_variableName}=${${_variableName}}")
-    endif()
-endforeach()
-message("*********************************************")
-
-
-set(Python_ADDITIONAL_VERSIONS 3.9)
-find_package(Python COMPONENTS Interpreter Development REQUIRED)
-
-message("***** Python ***********************************")
-get_cmake_property(_variableNames VARIABLES)
-foreach (_variableName ${_variableNames})
-    if(_variableName MATCHES "^(Python).*$")
-        message(STATUS "${_variableName}=${${_variableName}}")
-    endif()
-endforeach()
-message("************************************************")
-
+set(PYTHONQT_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 set(GENERATED_CPP_56_BUILTIN_INCLUDE_DIR
     ${CMAKE_CURRENT_SOURCE_DIR}/generated_cpp_56/com_trolltech_qt_core_builtin
@@ -120,6 +80,6 @@ set(GENERATED_CPP_56_ALL_SOURCES
 #add_subdirectory(generated_cpp_56)
 add_subdirectory(src)
 add_subdirectory(extensions)
-add_subdirectory(examples)
+
 
 
