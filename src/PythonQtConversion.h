@@ -109,7 +109,7 @@ public:
   static PyObject* ConvertQtValueToPython(const PythonQtMethodInfo::ParameterInfo& info, const void* data);
 
   //! convert python object to Qt (according to the given parameter) and if the conversion should be strict (classInfo is currently not used anymore)
-  static void* ConvertPythonToQt(const PythonQtMethodInfo::ParameterInfo& info, PyObject* obj, bool strict, PythonQtClassInfo* classInfo, void* alreadyAllocatedCPPObject, PythonQtArgumentFrame* frame = NULL);
+  static void* ConvertPythonToQt(const PythonQtMethodInfo::ParameterInfo& info, PyObject* obj, bool strict, PythonQtClassInfo* classInfo, void* alreadyAllocatedCPPObject, PythonQtArgumentFrame* frame = nullptr);
 
   //! creates a data storage for the passed parameter type and returns a void pointer to be set as arg[0] of qt_metacall
   static void* CreateQtReturnValue(const PythonQtMethodInfo::ParameterInfo& info, PythonQtArgumentFrame* frame);
@@ -132,6 +132,8 @@ public:
   static QString PyObjGetString(PyObject* val, bool strict, bool &ok);
   //! get bytes from py object
   static QByteArray PyObjGetBytes(PyObject* val, bool strict, bool &ok);
+  //! get bytes from py object, also allows Python string
+  static QByteArray PyObjGetBytesAllowString(PyObject* val, bool strict, bool& ok);
   //! get int from py object
   static int     PyObjGetInt(PyObject* val, bool strict, bool &ok);
   //! get int64 from py object
@@ -156,10 +158,10 @@ public:
   static PyObject* QVariantHashToPyObject(const QVariantHash& m);
   static PyObject* QVariantMapToPyObject(const QVariantMap& m);
   static PyObject* QVariantListToPyObject(const QVariantList& l);
-  
+
   //! get human readable string from CPP object (when the metatype is known)
   static QString CPPObjectToString(int type, const void* data);
-    
+
   //! register a converter callback from python to cpp for given metatype
   static void registerPythonToMetaTypeConverter(int metaTypeId, PythonQtConvertPythonToMetaTypeCB* cb) { _pythonToMetaTypeConverters.insert(metaTypeId, cb); }
 
@@ -185,7 +187,13 @@ public:
   static PyObject* convertFromPythonQtSafeObjectPtr(const void* /* PythonQtObjectPtr* */ inObject, int /*metaTypeId*/);
   static bool      convertToQListOfPythonQtObjectPtr(PyObject* obj, void* /* QList<PythonQtObjectPtr>* */ outList, int /*metaTypeId*/, bool /*strict*/);
   static PyObject* convertFromQListOfPythonQtObjectPtr(const void* /* QList<PythonQtObjectPtr>* */ inObject, int /*metaTypeId*/);
+#if QT_VERSION < 0x060000
   static PyObject* convertFromStringRef(const void* inObject, int /*metaTypeId*/);
+#else
+  static PyObject* convertFromStringView(const void* inObject, int /*metaTypeId*/);
+  static PyObject* convertFromAnyStringView(const void* inObject, int /*metaTypeId*/);
+  static PyObject* convertFromByteArrayView(const void* inObject, int /*metaTypeId*/);
+#endif
 
   //! Returns the name of the equivalent CPP type (for signals and slots)
   static QByteArray getCPPTypeName(PyObject* type);
@@ -193,11 +201,14 @@ public:
   //! Returns if the given object is a string (or unicode string)
   static bool isStringType(PyTypeObject* type);
 
+  //! Register QStringView like types, that need to be handled specially
+  static void registerStringViewTypes();
+
 protected:
-  static QHash<int, PythonQtConvertMetaTypeToPythonCB*> _metaTypeToPythonConverters; 
-  static QHash<int, PythonQtConvertPythonToMetaTypeCB*> _pythonToMetaTypeConverters; 
+  static QHash<int, PythonQtConvertMetaTypeToPythonCB*> _metaTypeToPythonConverters;
+  static QHash<int, PythonQtConvertPythonToMetaTypeCB*> _pythonToMetaTypeConverters;
   static PythonQtConvertPythonSequenceToQVariantListCB*  _pythonSequenceToQVariantListCB;
- 
+
   //! handle automatic conversion of some special types (QColor, QBrush, ...)
   static void* handlePythonToQtAutoConversion(int typeId, PyObject* obj, void* alreadyAllocatedCPPObject, PythonQtArgumentFrame* frame);
 
@@ -212,13 +223,20 @@ protected:
   //! helper template function for QVariantMapToPyObject/QVariantHashToPyObject
   template <typename Map>
   static PyObject* mapToPython (const Map& m);
-  
+
+#if QT_VERSION < 0x060000
+  static int stringRefTypeId;
+#else
+  static int stringViewTypeId;
+  static int anyStringViewTypeId;
+  static int byteArrayViewTypeId;
+#endif
 };
 
 template<class ListType, class T>
 PyObject* PythonQtConvertListOfValueTypeToPythonList(const void* /*QList<T>* */ inList, int metaTypeId)
 {
-  ListType* list = (ListType*)inList; 
+  ListType* list = (ListType*)inList;
   static const int innerType = PythonQtMethodInfo::getInnerTemplateMetaType(QByteArray(QMetaType::typeName(metaTypeId)));
   if (innerType == QVariant::Invalid) {
     std::cerr << "PythonQtConvertListOfValueTypeToPythonList: unknown inner type " << QMetaType::typeName(metaTypeId) << std::endl;
@@ -235,7 +253,7 @@ PyObject* PythonQtConvertListOfValueTypeToPythonList(const void* /*QList<T>* */ 
 template<class ListType, class T>
 bool PythonQtConvertPythonListToListOfValueType(PyObject* obj, void* /*QList<T>* */ outList, int metaTypeId, bool /*strict*/)
 {
-  ListType* list = (ListType*)outList; 
+  ListType* list = (ListType*)outList;
   static const int innerType = PythonQtMethodInfo::getInnerTemplateMetaType(QByteArray(QMetaType::typeName(metaTypeId)));
   if (innerType == QVariant::Invalid) {
     std::cerr << "PythonQtConvertPythonListToListOfValueType: unknown inner type " << QMetaType::typeName(metaTypeId) << std::endl;
@@ -270,8 +288,8 @@ PyObject* PythonQtConvertListOfKnownClassToPythonList(const void* /*QList<T>* */
 {
   ListType* list = (ListType*)inList;
   static PythonQtClassInfo* innerType = PythonQt::priv()->getClassInfo(PythonQtMethodInfo::getInnerListTypeName(QByteArray(QMetaType::typeName(metaTypeId))));
-  if (innerType == NULL) {
-    std::cerr << "PythonQtConvertListOfKnownClassToPythonList: unknown inner type " << innerType->className().constData() << std::endl;
+  if (innerType == nullptr) {
+    std::cerr << "PythonQtConvertListOfKnownClassToPythonList: unknown inner type for " << QMetaType::typeName(metaTypeId) << std::endl;
   }
   PyObject* result = PyTuple_New(list->size());
   int i = 0;
@@ -290,8 +308,8 @@ bool PythonQtConvertPythonListToListOfKnownClass(PyObject* obj, void* /*QList<T>
 {
   ListType* list = (ListType*)outList;
   static PythonQtClassInfo* innerType = PythonQt::priv()->getClassInfo(PythonQtMethodInfo::getInnerListTypeName(QByteArray(QMetaType::typeName(metaTypeId))));
-  if (innerType == NULL) {
-    std::cerr << "PythonQtConvertListOfKnownClassToPythonList: unknown inner type " << innerType->className().constData() << std::endl;
+  if (innerType == nullptr) {
+    std::cerr << "PythonQtConvertListOfKnownClassToPythonList: unknown inner type for " << QMetaType::typeName(metaTypeId) << std::endl;
   }
   bool result = false;
   if (PySequence_Check(obj)) {
@@ -500,7 +518,7 @@ bool PythonQtConvertPythonToIntegerMap(PyObject* val, void* /*QMap<int, T>* */ o
         tuple = PyList_GetItem(items, i);
         key = PyTuple_GetItem(tuple, 0);
         value = PyTuple_GetItem(tuple, 1);
-        
+
         bool ok;
         int intKey = PythonQtConv::PyObjGetInt(key, false, ok);
         // this is quite some overhead, but it avoids having another large switch...

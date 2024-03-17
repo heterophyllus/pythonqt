@@ -39,6 +39,8 @@
 **
 ****************************************************************************/
 
+#include <algorithm> // for std::sort
+
 #include "shellgenerator.h"
 #include "reporthandler.h"
 
@@ -48,8 +50,6 @@
 bool ShellGenerator::shouldGenerate(const AbstractMetaClass *meta_class) const
 {
     uint cg = meta_class->typeEntry()->codeGeneration();
-    // ignore the "Global" namespace, which contains the QtMsgType enum
-    if (meta_class->name().startsWith("Global")) return false;
     return ((cg & TypeEntry::GenerateCode) != 0);
 }
 
@@ -93,7 +93,7 @@ void ShellGenerator::writeTypeInfo(QTextStream &s, const AbstractMetaType *type,
     }
 
     if (type->instantiations().size() > 0
-        && (!type->isContainer() 
+        && (!te->isContainer() 
             || (static_cast<const ContainerTypeEntry *>(te))->type() != ContainerTypeEntry::StringListContainer)) {
         s << '<';
         QList<AbstractMetaType *> args = type->instantiations();
@@ -123,13 +123,24 @@ void ShellGenerator::writeTypeInfo(QTextStream &s, const AbstractMetaType *type,
         s << ' ';
 }
 
+namespace {
+  AbstractMetaEnum* findEnumTypeOfClass(const AbstractMetaClass* implementor, const QString& enumName)
+  {
+    for (AbstractMetaEnum* enumType : implementor->enums()) {
+      if (enumType->name() == enumName) {
+        return enumType;
+      }
+    }
+    return nullptr;
+  }
+}
+
 
 void ShellGenerator::writeFunctionArguments(QTextStream &s,
                                             const AbstractMetaFunction *meta_function,
                                             Option option,
                                             int numArguments)
 {
-  const AbstractMetaClass* owner = meta_function->ownerClass();
   const AbstractMetaArgumentList &arguments = meta_function->arguments();
 
     if (numArguments < 0) numArguments = arguments.size();
@@ -159,14 +170,30 @@ void ShellGenerator::writeFunctionArguments(QTextStream &s,
             s << " = "; 
 
             QString expr = arg->defaultValueExpression();
+          if (expr == "NULL")
+          {
+            expr = "nullptr";
+          }
           if (expr != "0") {
             QString qualifier;
             if (arg->type()->typeEntry()->isEnum() && expr.indexOf("::") < 0) {
               qualifier =  ((EnumTypeEntry *)arg->type()->typeEntry())->qualifier();
             } else if (arg->type()->typeEntry()->isFlags() && expr.indexOf("::") < 0) {
               qualifier = ((FlagsTypeEntry *)arg->type()->typeEntry())->originator()->qualifier();
+            } else if (_currentScope) {
+              int pos = expr.indexOf("::");
+              if (pos > 0) {
+                QString typeName = expr.left(pos);
+                AbstractMetaEnum* enumType = findEnumTypeOfClass(_currentScope, typeName);
+                if (enumType && enumType->typeEntry()->isEnumClass()) {
+                  // prepend original class name, otherwise the new enum type from the wrapper will be used,
+                  // which is not compatible
+                  qualifier = _currentScope->name();
+                }
+              }
             }
-            if (!qualifier.isEmpty()) {
+
+            if (!qualifier.isEmpty() && !expr.startsWith("{")) {
               s << qualifier << "::";
             }
           }
@@ -282,7 +309,7 @@ bool function_sorter(AbstractMetaFunction *a, AbstractMetaFunction *b);
 
 bool ShellGenerator::functionHasNonConstReferences(const AbstractMetaFunction* function)
 {
-  foreach(const AbstractMetaArgument* arg, function->arguments())
+  for (const AbstractMetaArgument* arg :  function->arguments())
   {
     if (!arg->type()->isConstant() && arg->type()->isReference()) {
       QString s;
@@ -319,8 +346,12 @@ AbstractMetaFunctionList ShellGenerator::getFunctionsToWrap(const AbstractMetaCl
     AbstractMetaClass::VirtualFunctions | AbstractMetaClass::WasVisible
     | AbstractMetaClass::NotRemovedFromTargetLang | AbstractMetaClass::ClassImplements
     );
+#if QT_VERSION < QT_VERSION_CHECK(5,14,0)
   QSet<AbstractMetaFunction*> set1 = QSet<AbstractMetaFunction*>::fromList(functions);
-  foreach(AbstractMetaFunction* func, functions2) {
+#else
+  QSet<AbstractMetaFunction*> set1(functions.begin(), functions.end());
+#endif
+  for (AbstractMetaFunction* func :  functions2) {
     set1.insert(func);
   }
 
@@ -328,14 +359,20 @@ AbstractMetaFunctionList ShellGenerator::getFunctionsToWrap(const AbstractMetaCl
 
   bool hasPromoter = meta_class->typeEntry()->shouldCreatePromoter();
 
-  foreach(AbstractMetaFunction* func, set1.toList()) {
+  for (AbstractMetaFunction* func :
+#   if QT_VERSION < QT_VERSION_CHECK(5,14,0)
+          set1.toList()
+#   else
+          QList<AbstractMetaFunction*>(set1.begin(), set1.end())
+#   endif
+      ) {
     if (func->implementingClass()==meta_class) {
       if (hasPromoter || func->wasPublic()) {
         resultFunctions << func;
       }
     }
   }
-  qSort(resultFunctions.begin(), resultFunctions.end(), function_sorter);
+  std::sort(resultFunctions.begin(), resultFunctions.end(), function_sorter);
   return resultFunctions;
 }
 
@@ -345,7 +382,7 @@ AbstractMetaFunctionList ShellGenerator::getVirtualFunctionsForShell(const Abstr
     AbstractMetaClass::VirtualFunctions | AbstractMetaClass::WasVisible
         | AbstractMetaClass::NotRemovedFromTargetLang
     );
-  qSort(functions.begin(), functions.end(), function_sorter);
+  std::sort(functions.begin(), functions.end(), function_sorter);
   return functions;
 }
 
@@ -353,12 +390,12 @@ AbstractMetaFunctionList ShellGenerator::getProtectedFunctionsThatNeedPromotion(
 {
   AbstractMetaFunctionList functions; 
   AbstractMetaFunctionList functions1 = getFunctionsToWrap(meta_class); 
-  foreach(AbstractMetaFunction* func, functions1) {
+  for (AbstractMetaFunction* func :  functions1) {
     if (func->wasProtected() || func->isVirtual()) {
       functions << func;
     }
   }
-  qSort(functions.begin(), functions.end(), function_sorter);
+  std::sort(functions.begin(), functions.end(), function_sorter);
   return functions;
 }
 
@@ -382,6 +419,13 @@ void ShellGenerator::writeInclude(QTextStream &stream, const Include &inc)
   else
     stream << "\"";
   stream << endl;
+}
+
+const AbstractMetaClass* ShellGenerator::setCurrentScope(const AbstractMetaClass* scope)
+{
+  const AbstractMetaClass* previousScope = _currentScope;
+  _currentScope = scope;
+  return previousScope;
 }
 
 /*!
@@ -420,7 +464,11 @@ bool ShellGenerator::isBuiltIn(const QString& name) {
     builtIn.insert("QKeySequence");
     builtIn.insert("QTextLength");
     builtIn.insert("QTextFormat");
+#if QT_VERSION < QT_VERSION_CHECK(6,0,0)
     builtIn.insert("QMatrix");
+#endif
+    builtIn.insert("QTransform");
+    builtIn.insert("QMatrix4x4");
     builtIn.insert("QDate");
     builtIn.insert("QTime");
     builtIn.insert("QDateTime");
@@ -434,7 +482,10 @@ bool ShellGenerator::isBuiltIn(const QString& name) {
     builtIn.insert("QLineF");
     builtIn.insert("QPoint");
     builtIn.insert("QPointF");
+#if QT_VERSION < QT_VERSION_CHECK(6,0,0)
     builtIn.insert("QRegExp");
+#endif
+    builtIn.insert("QRegularExpression");
   }
   return builtIn.contains(name);
 }
